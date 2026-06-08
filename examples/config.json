@@ -1,0 +1,18 @@
+{
+  "max_tasks": 20,
+  "package_prefix": "AG",
+  "default_test_commands": ["python -m unittest"],
+  "risk_keywords": {
+    "auth": 3,
+    "database": 3,
+    "migration": 3,
+    "payment": 3,
+    "性能": 2,
+    "权限": 3
+  },
+  "task_markers": ["任务", "需求", "实现", "支持", "Task", "Feature"],
+  "path_roots": ["src", "tests", "docs", "examples", ".github"],
+  "infer_dependencies": true,
+  "include_low_confidence_tasks": true
+}
+
