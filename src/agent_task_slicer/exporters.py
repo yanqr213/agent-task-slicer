@@ -1,4 +1,4 @@
-"""Export task packages as Markdown, JSON and Graphviz DOT."""
+"""Export task packages as Markdown, JSON, JSONL, prompt packs and DOT."""
 
 from __future__ import annotations
 
@@ -11,13 +11,17 @@ from .models import AcceptanceCriterion, SliceResult, TaskPackage
 
 
 def export_result(result: SliceResult, fmt: str) -> str:
-    """Export a result in ``markdown``, ``json`` or ``dot`` format."""
+    """Export a result in a supported report or agent handoff format."""
 
     normalized = normalize_format(fmt)
     if normalized == "markdown":
         return export_markdown(result)
     if normalized == "json":
         return export_json(result)
+    if normalized == "jsonl":
+        return export_jsonl(result)
+    if normalized == "prompt-pack":
+        return export_prompt_pack(result)
     if normalized == "dot":
         return export_dot(result)
     raise ValueError(f"unsupported format: {fmt}")
@@ -25,7 +29,20 @@ def export_result(result: SliceResult, fmt: str) -> str:
 
 def normalize_format(fmt: str) -> str:
     value = fmt.lower().strip()
-    aliases = {"md": "markdown", "markdown": "markdown", "json": "json", "dot": "dot", "graphviz": "dot"}
+    aliases = {
+        "md": "markdown",
+        "markdown": "markdown",
+        "json": "json",
+        "jsonl": "jsonl",
+        "ndjson": "jsonl",
+        "queue": "jsonl",
+        "prompt": "prompt-pack",
+        "prompts": "prompt-pack",
+        "prompt-pack": "prompt-pack",
+        "agent-prompts": "prompt-pack",
+        "dot": "dot",
+        "graphviz": "dot",
+    }
     if value not in aliases:
         raise ValueError(f"unsupported format: {fmt}")
     return aliases[value]
@@ -105,6 +122,89 @@ def export_json(result: SliceResult) -> str:
     return json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
 
 
+def export_jsonl(result: SliceResult) -> str:
+    """Export one runnable agent queue item per line."""
+
+    lines = []
+    for index, task in enumerate(result.tasks, start=1):
+        payload = {
+            "schema": "agent-task-slicer.queue.v1",
+            "sequence": index,
+            "source": result.source,
+            "task": _task_to_json(task),
+            "prompt": build_agent_prompt(task, result),
+        }
+        lines.append(json.dumps(payload, ensure_ascii=False, sort_keys=True))
+    return "\n".join(lines) + ("\n" if lines else "")
+
+
+def export_prompt_pack(result: SliceResult) -> str:
+    """Export copy-paste-ready prompts for coding agents."""
+
+    lines = [
+        "# Agent Prompt Pack",
+        "",
+        f"- Source: `{result.source}`",
+        f"- Tasks: {len(result.tasks)}",
+        "- Format: one fenced prompt per task",
+        "",
+    ]
+    if result.warnings:
+        lines.append(f"- Warnings: {len(result.warnings)}")
+        lines.append("")
+    for task in result.tasks:
+        lines.extend([
+            f"## {task.id} {task.title}",
+            "",
+            "```text",
+            build_agent_prompt(task, result).rstrip(),
+            "```",
+            "",
+        ])
+    if result.warnings:
+        lines.extend(["## Warnings", ""])
+        lines.extend(f"- {warning}" for warning in result.warnings)
+        lines.append("")
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def build_agent_prompt(task: TaskPackage, result: SliceResult) -> str:
+    """Build a deterministic prompt for one task package."""
+
+    lines = [
+        f"You are working on task {task.id}: {task.title}",
+        "",
+        "Goal:",
+        task.goal,
+        "",
+        f"Source: {result.source}",
+    ]
+    if task.source_section:
+        lines.append(f"Source section: {task.source_section}")
+    lines.extend(["", "Scope:"])
+    lines.extend(_list_lines(task.scope))
+    lines.extend(["", "Input files or paths:"])
+    lines.extend(_list_lines(task.input_files))
+    lines.extend(["", "Acceptance criteria:"])
+    lines.extend(_criteria_lines(task.acceptance_criteria))
+    lines.extend(["", "Risk notes:"])
+    lines.append(f"- Risk score: {task.risk_score}/5")
+    lines.extend(_list_lines(task.risks))
+    lines.extend(["", "Suggested verification commands:"])
+    lines.extend(f"- `{command}`" for command in task.suggested_commands)
+    lines.extend(["", "Dependencies:"])
+    lines.extend(_list_lines(task.dependencies))
+    lines.extend([
+        "",
+        "Operating rules:",
+        "- Keep the change scoped to this task unless a dependency explicitly requires broader work.",
+        "- Preserve unrelated user or repository changes.",
+        "- Run the suggested verification commands when possible.",
+        "- Report changed files, verification results, remaining risks, and follow-up tasks.",
+    ])
+    return "\n".join(lines) + "\n"
+
+
 def _task_to_json(task: TaskPackage) -> dict:
     data = asdict(task)
     data["acceptance_criteria"] = [asdict(item) for item in task.acceptance_criteria]
@@ -139,4 +239,3 @@ def _risk_color(score: int) -> str:
 def _dot_escape(value: str) -> str:
     value = re.sub(r"\s+", " ", value)
     return value.replace("\\", "\\\\").replace('"', '\\"')
-

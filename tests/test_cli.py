@@ -41,6 +41,19 @@ class CliTests(unittest.TestCase):
         self.assertEqual(code, EXIT_OK)
         self.assertTrue(stdout.startswith("digraph"))
 
+    def test_cli_outputs_jsonl_queue(self):
+        code, stdout, _ = self.run_cli(["-", "--format", "jsonl"], stdin=INPUT)
+        self.assertEqual(code, EXIT_OK)
+        payload = json.loads(stdout.splitlines()[0])
+        self.assertEqual(payload["schema"], "agent-task-slicer.queue.v1")
+        self.assertIn("prompt", payload)
+
+    def test_cli_outputs_prompt_pack(self):
+        code, stdout, _ = self.run_cli(["-", "--format", "prompt-pack"], stdin=INPUT)
+        self.assertEqual(code, EXIT_OK)
+        self.assertIn("# Agent Prompt Pack", stdout)
+        self.assertIn("Operating rules:", stdout)
+
     def test_cli_reads_file(self):
         with tempfile.NamedTemporaryFile("w", encoding="utf-8", delete=False, suffix=".md") as handle:
             handle.write(INPUT)
@@ -128,4 +141,3 @@ class CliTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

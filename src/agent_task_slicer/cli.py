@@ -35,8 +35,21 @@ def build_parser() -> argparse.ArgumentParser:
         "-f",
         "--format",
         default="markdown",
-        choices=["markdown", "md", "json", "dot", "graphviz"],
-        help="Output format.",
+        choices=[
+            "markdown",
+            "md",
+            "json",
+            "jsonl",
+            "ndjson",
+            "queue",
+            "prompt",
+            "prompts",
+            "prompt-pack",
+            "agent-prompts",
+            "dot",
+            "graphviz",
+        ],
+        help="Output format. Use prompt-pack or jsonl to hand tasks directly to coding agents.",
     )
     parser.add_argument("-o", "--output", help="Output file. Defaults to stdout.")
     parser.add_argument("-c", "--config", help="JSON config file.")
@@ -129,4 +142,3 @@ def _write_output(text: str, path: Optional[str]) -> None:
 
 def _write_stderr(message: str) -> None:
     sys.stderr.write(f"agent-task-slicer: {message}\n")
-

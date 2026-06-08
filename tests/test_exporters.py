@@ -1,7 +1,16 @@
 import json
 import unittest
 
-from agent_task_slicer.exporters import export_dot, export_json, export_markdown, export_result, normalize_format
+from agent_task_slicer.exporters import (
+    build_agent_prompt,
+    export_dot,
+    export_json,
+    export_jsonl,
+    export_markdown,
+    export_prompt_pack,
+    export_result,
+    normalize_format,
+)
 from agent_task_slicer.slicer import slice_text
 
 
@@ -20,6 +29,8 @@ class ExporterTests(unittest.TestCase):
     def test_normalize_format_aliases(self):
         self.assertEqual(normalize_format("md"), "markdown")
         self.assertEqual(normalize_format("graphviz"), "dot")
+        self.assertEqual(normalize_format("ndjson"), "jsonl")
+        self.assertEqual(normalize_format("agent-prompts"), "prompt-pack")
 
     def test_normalize_format_rejects_unknown(self):
         with self.assertRaises(ValueError):
@@ -36,6 +47,16 @@ class ExporterTests(unittest.TestCase):
     def test_export_result_dispatches_dot(self):
         output = export_result(self.result, "dot")
         self.assertTrue(output.startswith("digraph"))
+
+    def test_export_result_dispatches_jsonl(self):
+        output = export_result(self.result, "jsonl")
+        first = json.loads(output.splitlines()[0])
+        self.assertEqual(first["schema"], "agent-task-slicer.queue.v1")
+
+    def test_export_result_dispatches_prompt_pack(self):
+        output = export_result(self.result, "prompt-pack")
+        self.assertIn("# Agent Prompt Pack", output)
+        self.assertIn("Operating rules:", output)
 
     def test_export_result_rejects_unknown(self):
         with self.assertRaises(ValueError):
@@ -62,6 +83,23 @@ class ExporterTests(unittest.TestCase):
         self.assertIn("text", criterion)
         self.assertIn("source", criterion)
 
+    def test_jsonl_contains_one_queue_item_per_task(self):
+        rows = [json.loads(line) for line in export_jsonl(self.result).splitlines()]
+        self.assertEqual(len(rows), len(self.result.tasks))
+        self.assertEqual(rows[0]["task"]["id"], "T001")
+        self.assertIn("Suggested verification commands:", rows[0]["prompt"])
+
+    def test_prompt_pack_contains_copy_paste_prompts(self):
+        output = export_prompt_pack(self.result)
+        self.assertIn("```text", output)
+        self.assertIn("You are working on task T001", output)
+        self.assertIn("Report changed files", output)
+
+    def test_build_agent_prompt_mentions_dependencies(self):
+        prompt = build_agent_prompt(self.result.tasks[1], self.result)
+        self.assertIn("Dependencies:", prompt)
+        self.assertIn("T001", prompt)
+
     def test_dot_contains_nodes_and_edges(self):
         output = export_dot(self.result)
         self.assertIn('"T001"', output)
@@ -80,4 +118,3 @@ class ExporterTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

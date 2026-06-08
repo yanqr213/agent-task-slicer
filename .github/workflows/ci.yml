@@ -15,13 +15,17 @@ jobs:
         python-version: ["3.9", "3.10", "3.11", "3.12", "3.13"]
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: ${{ matrix.python-version }}
       - name: Install package
         run: python -m pip install -e .
       - name: Run tests
         run: python -m unittest
-
+      - name: Smoke agent handoff formats
+        run: |
+          agent-task-slicer examples/sample_prd.md --format prompt-pack -o outputs/tasks.prompts.md
+          agent-task-slicer examples/sample_prd.md --format jsonl -o outputs/tasks.queue.jsonl
+          python -c "import json, pathlib; rows=[json.loads(line) for line in pathlib.Path('outputs/tasks.queue.jsonl').read_text(encoding='utf-8').splitlines()]; assert rows and rows[0]['schema'] == 'agent-task-slicer.queue.v1'"

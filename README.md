@@ -54,6 +54,18 @@ agent-task-slicer examples/sample_prd.md
 agent-task-slicer examples/sample_prd.md --format json
 ```
 
+输出可直接复制给 Codex/Claude Code 的 prompt pack：
+
+```bash
+agent-task-slicer examples/sample_prd.md --format prompt-pack -o outputs/tasks.prompts.md
+```
+
+输出一行一个任务的 JSONL 队列，方便内部 runner 或并行调度读取：
+
+```bash
+agent-task-slicer examples/sample_prd.md --format jsonl -o outputs/tasks.queue.jsonl
+```
+
 输出 Graphviz DOT：
 
 ```bash
@@ -91,7 +103,7 @@ agent-task-slicer examples/sample_prd.md -c examples/config.json --format json
 
 ```python
 from agent_task_slicer import SlicerConfig, TaskSlicer
-from agent_task_slicer.exporters import export_json
+from agent_task_slicer.exporters import export_json, export_jsonl, export_prompt_pack
 
 config = SlicerConfig(max_tasks=20, package_prefix="AG")
 slicer = TaskSlicer(config)
@@ -101,6 +113,8 @@ for task in result.tasks:
     print(task.id, task.title, task.risk_score)
 
 json_text = export_json(result)
+queue_text = export_jsonl(result)
+prompt_pack = export_prompt_pack(result)
 ```
 
 快捷函数：
@@ -169,6 +183,22 @@ result = slice_text("# 任务：实现 CLI\n- 支持 JSON 输出")
 }
 ```
 
+### JSONL 队列
+
+适合内部 agent runner、批处理脚本或并行调度系统消费。每一行是一个独立任务，包含稳定 schema、任务结构和可直接投喂给 coding agent 的 prompt：
+
+```jsonl
+{"schema":"agent-task-slicer.queue.v1","sequence":1,"source":"examples/sample_prd.md","task":{"id":"T001"},"prompt":"You are working on task T001..."}
+```
+
+### Agent Prompt Pack
+
+适合人工复制到 Codex、Claude Code 或内部 agent 控制台。每个任务都有独立 fenced prompt，包含目标、范围、输入文件、验收标准、风险、验证命令、依赖和执行规则：
+
+```bash
+agent-task-slicer examples/sample_prd.md --format prompt-pack -o outputs/tasks.prompts.md
+```
+
 ### Graphviz DOT
 
 适合生成依赖图：
@@ -191,9 +221,13 @@ python -m unittest
 
 ```bash
 agent-task-slicer docs/prd.md --format json -o work/tasks.json
+agent-task-slicer docs/prd.md --format jsonl -o work/tasks.queue.jsonl
+agent-task-slicer docs/prd.md --format prompt-pack -o work/tasks.prompts.md
 ```
 
-然后由你的编排器读取 `tasks.json`，按 `dependencies` 拓扑排序，把每个任务的 `goal`、`scope`、`input_files`、`acceptance_criteria` 发送给 Codex、Claude Code 或内部 agent。
+如果你有自己的编排器，读取 `tasks.json` 或 `tasks.queue.jsonl`，按 `dependencies` 拓扑排序，把每个任务的 `goal`、`scope`、`input_files`、`acceptance_criteria` 和 `prompt` 发送给 Codex、Claude Code 或内部 agent。
+
+如果你是人工驱动 agent，直接打开 `tasks.prompts.md`，按顺序复制每个 fenced prompt 即可。
 
 ## 识别逻辑
 
@@ -256,7 +290,7 @@ Each package includes:
 - Risk reasons and a 1-5 risk score
 - Suggested verification commands
 - Dependencies
-- Markdown, JSON, and Graphviz DOT output
+- Markdown, JSON, JSONL queue, agent prompt pack, and Graphviz DOT output
 
 This is not a hosted project management product. It is a lightweight repository tool that can run locally, in CI, or inside your agent orchestration pipeline.
 
@@ -265,7 +299,7 @@ This is not a hosted project management product. It is a lightweight repository 
 - Break large product requirements into agent-sized tasks.
 - Extract work packages from issues, PRDs, checklists, and implementation plans.
 - Generate clearer context before asking a coding agent to act.
-- Feed JSON tasks into an internal orchestrator.
+- Feed JSON or JSONL task queues into an internal orchestrator.
 - Produce DOT dependency graphs for reviews and documentation.
 
 ## Installation
@@ -296,6 +330,18 @@ Print JSON:
 
 ```bash
 agent-task-slicer examples/sample_prd.md --format json
+```
+
+Write copy-paste-ready prompts for Codex, Claude Code, or internal agents:
+
+```bash
+agent-task-slicer examples/sample_prd.md --format prompt-pack -o outputs/tasks.prompts.md
+```
+
+Write a JSONL task queue for runners and parallel schedulers:
+
+```bash
+agent-task-slicer examples/sample_prd.md --format jsonl -o outputs/tasks.queue.jsonl
 ```
 
 Print Graphviz DOT:
@@ -385,6 +431,18 @@ Markdown is intended for agents, issues, pull request comments, and planning doc
 
 JSON is intended for orchestration systems. It contains `source`, `warnings`, `metadata`, and a `tasks` array.
 
+JSONL queue output is intended for agent runners, batch scripts, and parallel schedulers. Each line is one independent task with a stable schema, structured task data, and a ready-to-send prompt:
+
+```jsonl
+{"schema":"agent-task-slicer.queue.v1","sequence":1,"source":"examples/sample_prd.md","task":{"id":"T001"},"prompt":"You are working on task T001..."}
+```
+
+Agent prompt pack output is intended for human-driven Codex, Claude Code, or internal agent sessions. Each task is emitted as a fenced prompt with goal, scope, input files, acceptance criteria, risks, verification commands, dependencies, and operating rules:
+
+```bash
+agent-task-slicer examples/sample_prd.md --format prompt-pack -o outputs/tasks.prompts.md
+```
+
 DOT is intended for dependency visualization:
 
 ```bash
@@ -405,9 +463,13 @@ Typical agent pipeline step:
 
 ```bash
 agent-task-slicer docs/prd.md --format json -o work/tasks.json
+agent-task-slicer docs/prd.md --format jsonl -o work/tasks.queue.jsonl
+agent-task-slicer docs/prd.md --format prompt-pack -o work/tasks.prompts.md
 ```
 
-Your orchestrator can then read `tasks.json`, topologically order tasks by `dependencies`, and send each package's `goal`, `scope`, `input_files`, and `acceptance_criteria` to Codex, Claude Code, or an internal agent.
+Your orchestrator can read `tasks.json` or `tasks.queue.jsonl`, topologically order tasks by `dependencies`, and send each package's structured fields plus `prompt` to Codex, Claude Code, or an internal agent.
+
+For human-driven sessions, open `tasks.prompts.md` and copy each fenced prompt in order.
 
 ## How It Works
 
@@ -455,4 +517,3 @@ Contribution guidelines:
 ## License
 
 MIT.
-
