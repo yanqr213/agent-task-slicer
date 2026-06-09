@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.0 - 2026-06-09
+
+- Added `parallel-plan`/`parallel`/`agent-plan` Markdown output for multi-agent execution waves.
+- Added `parallel-json`/`dispatch-json` schema for orchestrators that need wave, slot, worktree, and prompt metadata.
+- Added deterministic agent slots, suggested worktree branches/paths, dependency gap reporting, and per-task prompts.
+- Expanded CLI, exporter tests, CI smoke checks, and Chinese/English documentation for parallel agent workflows.
+
 ## 0.3.0 - 2026-06-09
 
 - Added `github-issues`/`gh-issues`/`issues` output for GitHub issue creation payloads.

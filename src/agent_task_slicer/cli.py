@@ -46,13 +46,19 @@ def build_parser() -> argparse.ArgumentParser:
             "prompts",
             "prompt-pack",
             "agent-prompts",
+            "parallel",
+            "parallel-plan",
+            "agent-plan",
+            "parallel-json",
+            "agent-plan-json",
+            "dispatch-json",
             "github-issues",
             "gh-issues",
             "issues",
             "dot",
             "graphviz",
         ],
-        help="Output format. Use prompt-pack/jsonl for agents or github-issues for issue import payloads.",
+        help="Output format. Use prompt-pack/jsonl/parallel-plan for agents or github-issues for issue import payloads.",
     )
     parser.add_argument("-o", "--output", help="Output file. Defaults to stdout.")
     parser.add_argument("-c", "--config", help="JSON config file.")

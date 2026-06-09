@@ -1,4 +1,4 @@
-"""Export task packages as Markdown, JSON, JSONL, prompt packs, GitHub issues and DOT."""
+"""Export task packages as Markdown, JSON, JSONL, prompt packs, parallel plans, GitHub issues and DOT."""
 
 from __future__ import annotations
 
@@ -22,6 +22,10 @@ def export_result(result: SliceResult, fmt: str) -> str:
         return export_jsonl(result)
     if normalized == "prompt-pack":
         return export_prompt_pack(result)
+    if normalized == "parallel-plan":
+        return export_parallel_plan(result)
+    if normalized == "parallel-json":
+        return export_parallel_json(result)
     if normalized == "github-issues":
         return export_github_issues(result)
     if normalized == "dot":
@@ -42,6 +46,12 @@ def normalize_format(fmt: str) -> str:
         "prompts": "prompt-pack",
         "prompt-pack": "prompt-pack",
         "agent-prompts": "prompt-pack",
+        "parallel": "parallel-plan",
+        "parallel-plan": "parallel-plan",
+        "agent-plan": "parallel-plan",
+        "parallel-json": "parallel-json",
+        "agent-plan-json": "parallel-json",
+        "dispatch-json": "parallel-json",
         "github-issues": "github-issues",
         "gh-issues": "github-issues",
         "issues": "github-issues",
@@ -173,6 +183,96 @@ def export_prompt_pack(result: SliceResult) -> str:
     return "\n".join(lines).rstrip() + "\n"
 
 
+def export_parallel_json(result: SliceResult) -> str:
+    """Export a deterministic multi-agent execution plan grouped by dependency waves."""
+
+    waves = _parallel_waves(result)
+    payload = {
+        "schema": "agent-task-slicer.parallel-plan.v1",
+        "source": result.source,
+        "metadata": result.metadata,
+        "warnings": result.warnings,
+        "summary": {
+            "tasks": len(result.tasks),
+            "waves": len(waves),
+            "max_parallel_tasks": max([0] + [len(wave) for wave in waves]),
+            "blocked_dependencies": _unknown_dependencies(result),
+        },
+        "waves": [
+            {
+                "wave": wave_index,
+                "parallelizable": len(wave) > 1,
+                "tasks": [_parallel_task_payload(task, result, wave_index, task_index) for task_index, task in enumerate(wave, start=1)],
+            }
+            for wave_index, wave in enumerate(waves, start=1)
+        ],
+    }
+    return json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
+
+
+def export_parallel_plan(result: SliceResult) -> str:
+    """Export a human-readable multi-agent dispatch plan."""
+
+    payload = json.loads(export_parallel_json(result))
+    summary = payload["summary"]
+    lines = [
+        "# Agent Parallel Execution Plan",
+        "",
+        f"- Source: `{result.source}`",
+        f"- Tasks: {summary['tasks']}",
+        f"- Waves: {summary['waves']}",
+        f"- Max parallel tasks: {summary['max_parallel_tasks']}",
+        f"- Blocked or unknown dependencies: {len(summary['blocked_dependencies'])}",
+        "",
+        "## How To Use",
+        "",
+        "1. Start all tasks in wave 1 first.",
+        "2. Only start the next wave after every dependency in previous waves is merged or explicitly accepted.",
+        "3. Give each agent its task prompt and suggested worktree branch/path.",
+        "4. Keep shared files serialized when a task lists dependencies or touches the same path.",
+        "",
+    ]
+    if result.warnings:
+        lines.extend(["## Warnings", ""])
+        lines.extend(f"- {warning}" for warning in result.warnings)
+        lines.append("")
+    if summary["blocked_dependencies"]:
+        lines.extend(["## Dependency Gaps", ""])
+        for item in summary["blocked_dependencies"]:
+            lines.append(f"- {item['task_id']} references missing dependency `{item['dependency']}`.")
+        lines.append("")
+
+    for wave in payload["waves"]:
+        lines.extend([
+            f"## Wave {wave['wave']}",
+            "",
+            f"- Parallelizable: {'yes' if wave['parallelizable'] else 'no'}",
+            "",
+            "| Agent | Task | Risk | Dependencies | Worktree Branch | Suggested Path |",
+            "| --- | --- | ---: | --- | --- | --- |",
+        ])
+        for task in wave["tasks"]:
+            lines.append(
+                f"| {task['agent_slot']} | {task['task_id']} {task['title']} | {task['risk_score']} | "
+                f"{_md(_csv(task['dependencies']))} | `{_md(task['worktree_branch'])}` | `{_md(task['worktree_path'])}` |"
+            )
+        lines.append("")
+        for task in wave["tasks"]:
+            lines.extend([
+                f"### {task['agent_slot']} - {task['task_id']} {task['title']}",
+                "",
+                f"- Goal: {task['goal']}",
+                f"- Input files: {_csv(task['input_files'])}",
+                f"- Suggested verification: {_csv(task['suggested_commands'])}",
+                "",
+                "```text",
+                task["prompt"].rstrip(),
+                "```",
+                "",
+            ])
+    return "\n".join(lines).rstrip() + "\n"
+
+
 def export_github_issues(result: SliceResult) -> str:
     """Export GitHub issue creation payloads for each task package."""
 
@@ -273,6 +373,52 @@ def _github_issue_labels(task: TaskPackage) -> List[str]:
     return labels
 
 
+def _parallel_waves(result: SliceResult) -> List[List[TaskPackage]]:
+    remaining = {task.id: task for task in result.tasks}
+    completed = set()
+    waves: List[List[TaskPackage]] = []
+    while remaining:
+        ready = [
+            task
+            for task in result.tasks
+            if task.id in remaining and all(dep in completed or dep not in remaining for dep in task.dependencies)
+        ]
+        if not ready:
+            ready = [remaining[task_id] for task_id in sorted(remaining)]
+        ready.sort(key=lambda task: (task.risk_score, task.id))
+        waves.append(ready)
+        for task in ready:
+            completed.add(task.id)
+            remaining.pop(task.id, None)
+    return waves
+
+
+def _parallel_task_payload(task: TaskPackage, result: SliceResult, wave_index: int, task_index: int) -> dict:
+    return {
+        "agent_slot": f"agent-{wave_index:02d}-{task_index:02d}",
+        "task_id": task.id,
+        "title": task.title,
+        "goal": task.goal,
+        "risk_score": task.risk_score,
+        "dependencies": list(task.dependencies),
+        "input_files": list(task.input_files),
+        "suggested_commands": list(task.suggested_commands),
+        "worktree_branch": f"agent/{_label_slug(task.id)}-{_label_slug(task.title)[:48]}",
+        "worktree_path": f"../worktrees/{_label_slug(task.id)}-{_label_slug(task.title)[:48]}",
+        "prompt": build_agent_prompt(task, result),
+    }
+
+
+def _unknown_dependencies(result: SliceResult) -> List[dict]:
+    ids = {task.id for task in result.tasks}
+    missing = []
+    for task in result.tasks:
+        for dependency in task.dependencies:
+            if dependency not in ids:
+                missing.append({"task_id": task.id, "dependency": dependency})
+    return missing
+
+
 def _risk_label(score: int) -> str:
     if score >= 4:
         return "risk:high"
@@ -300,6 +446,15 @@ def _label_slug(value: str) -> str:
     value = re.sub(r"[^A-Za-z0-9_.-]+", "-", value.strip().lower())
     value = value.strip("-._")
     return value or "general"
+
+
+def _csv(values: Iterable[str]) -> str:
+    items = [str(item) for item in values if str(item).strip()]
+    return ", ".join(items) if items else "N/A"
+
+
+def _md(value: str) -> str:
+    return str(value).replace("\n", " ").replace("|", "\\|")
 
 
 def build_agent_prompt(task: TaskPackage, result: SliceResult) -> str:

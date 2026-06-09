@@ -28,6 +28,9 @@ jobs:
         run: |
           agent-task-slicer examples/sample_prd.md --format prompt-pack -o outputs/tasks.prompts.md
           agent-task-slicer examples/sample_prd.md --format jsonl -o outputs/tasks.queue.jsonl
+          agent-task-slicer examples/sample_prd.md --format parallel-plan -o outputs/tasks.parallel.md
+          agent-task-slicer examples/sample_prd.md --format parallel-json -o outputs/tasks.parallel.json
           agent-task-slicer examples/sample_prd.md --format github-issues -o outputs/tasks.github-issues.json
           python -c "import json, pathlib; rows=[json.loads(line) for line in pathlib.Path('outputs/tasks.queue.jsonl').read_text(encoding='utf-8').splitlines()]; assert rows and rows[0]['schema'] == 'agent-task-slicer.queue.v1'"
+          python -c "import json, pathlib; payload=json.loads(pathlib.Path('outputs/tasks.parallel.json').read_text(encoding='utf-8')); assert payload['schema'] == 'agent-task-slicer.parallel-plan.v1' and payload['waves'][0]['tasks'][0]['agent_slot'] == 'agent-01-01'"
           python -c "import json, pathlib; payload=json.loads(pathlib.Path('outputs/tasks.github-issues.json').read_text(encoding='utf-8')); assert payload['schema'] == 'agent-task-slicer.github-issues.v1' and payload['issues']"

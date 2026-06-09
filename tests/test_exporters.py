@@ -1,6 +1,7 @@
 import json
 import unittest
 
+from agent_task_slicer.models import SliceResult
 from agent_task_slicer.exporters import (
     build_agent_prompt,
     export_dot,
@@ -8,6 +9,8 @@ from agent_task_slicer.exporters import (
     export_json,
     export_jsonl,
     export_markdown,
+    export_parallel_json,
+    export_parallel_plan,
     export_prompt_pack,
     export_result,
     normalize_format,
@@ -32,6 +35,9 @@ class ExporterTests(unittest.TestCase):
         self.assertEqual(normalize_format("graphviz"), "dot")
         self.assertEqual(normalize_format("ndjson"), "jsonl")
         self.assertEqual(normalize_format("agent-prompts"), "prompt-pack")
+        self.assertEqual(normalize_format("parallel"), "parallel-plan")
+        self.assertEqual(normalize_format("agent-plan"), "parallel-plan")
+        self.assertEqual(normalize_format("dispatch-json"), "parallel-json")
         self.assertEqual(normalize_format("gh-issues"), "github-issues")
         self.assertEqual(normalize_format("issues"), "github-issues")
 
@@ -65,6 +71,16 @@ class ExporterTests(unittest.TestCase):
         output = export_result(self.result, "github-issues")
         payload = json.loads(output)
         self.assertEqual(payload["schema"], "agent-task-slicer.github-issues.v1")
+
+    def test_export_result_dispatches_parallel_plan(self):
+        output = export_result(self.result, "parallel-plan")
+        self.assertIn("# Agent Parallel Execution Plan", output)
+        self.assertIn("## Wave 1", output)
+
+    def test_export_result_dispatches_parallel_json(self):
+        output = export_result(self.result, "parallel-json")
+        payload = json.loads(output)
+        self.assertEqual(payload["schema"], "agent-task-slicer.parallel-plan.v1")
 
     def test_export_result_rejects_unknown(self):
         with self.assertRaises(ValueError):
@@ -102,6 +118,32 @@ class ExporterTests(unittest.TestCase):
         self.assertIn("```text", output)
         self.assertIn("You are working on task T001", output)
         self.assertIn("Report changed files", output)
+
+    def test_parallel_json_groups_tasks_by_dependency_waves(self):
+        payload = json.loads(export_parallel_json(self.result))
+
+        self.assertEqual(payload["summary"]["tasks"], 2)
+        self.assertEqual(payload["summary"]["waves"], 2)
+        self.assertEqual(payload["waves"][0]["tasks"][0]["task_id"], "T001")
+        self.assertEqual(payload["waves"][1]["tasks"][0]["dependencies"], ["T001"])
+        self.assertEqual(payload["waves"][0]["tasks"][0]["agent_slot"], "agent-01-01")
+        self.assertTrue(payload["waves"][0]["tasks"][0]["worktree_branch"].startswith("agent/t001-"))
+        self.assertIn("You are working on task T001", payload["waves"][0]["tasks"][0]["prompt"])
+
+    def test_parallel_plan_contains_worktree_and_prompts(self):
+        output = export_parallel_plan(self.result)
+
+        self.assertIn("Max parallel tasks:", output)
+        self.assertIn("Worktree Branch", output)
+        self.assertIn("agent-01-01", output)
+        self.assertIn("```text", output)
+
+    def test_parallel_json_reports_missing_dependencies(self):
+        self.result.tasks[0].dependencies = ["MISSING"]
+        result = SliceResult(source="<text>", tasks=[self.result.tasks[0]], warnings=[], metadata={})
+        payload = json.loads(export_parallel_json(result))
+
+        self.assertEqual(payload["summary"]["blocked_dependencies"], [{"task_id": "T001", "dependency": "MISSING"}])
 
     def test_github_issues_contains_issue_payloads(self):
         payload = json.loads(export_github_issues(self.result))

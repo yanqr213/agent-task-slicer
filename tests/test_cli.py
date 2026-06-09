@@ -61,6 +61,19 @@ class CliTests(unittest.TestCase):
         self.assertEqual(payload["schema"], "agent-task-slicer.github-issues.v1")
         self.assertEqual(payload["issues"][0]["task_id"], "T001")
 
+    def test_cli_outputs_parallel_plan(self):
+        code, stdout, _ = self.run_cli(["-", "--format", "parallel-plan"], stdin=INPUT)
+        self.assertEqual(code, EXIT_OK)
+        self.assertIn("# Agent Parallel Execution Plan", stdout)
+        self.assertIn("agent-01-01", stdout)
+
+    def test_cli_outputs_parallel_json(self):
+        code, stdout, _ = self.run_cli(["-", "--format", "parallel-json"], stdin=INPUT)
+        self.assertEqual(code, EXIT_OK)
+        payload = json.loads(stdout)
+        self.assertEqual(payload["schema"], "agent-task-slicer.parallel-plan.v1")
+        self.assertEqual(payload["waves"][0]["tasks"][0]["agent_slot"], "agent-01-01")
+
     def test_cli_reads_file(self):
         with tempfile.NamedTemporaryFile("w", encoding="utf-8", delete=False, suffix=".md") as handle:
             handle.write(INPUT)
