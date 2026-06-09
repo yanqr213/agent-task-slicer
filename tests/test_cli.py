@@ -54,6 +54,13 @@ class CliTests(unittest.TestCase):
         self.assertIn("# Agent Prompt Pack", stdout)
         self.assertIn("Operating rules:", stdout)
 
+    def test_cli_outputs_github_issues(self):
+        code, stdout, _ = self.run_cli(["-", "--format", "github-issues"], stdin=INPUT)
+        self.assertEqual(code, EXIT_OK)
+        payload = json.loads(stdout)
+        self.assertEqual(payload["schema"], "agent-task-slicer.github-issues.v1")
+        self.assertEqual(payload["issues"][0]["task_id"], "T001")
+
     def test_cli_reads_file(self):
         with tempfile.NamedTemporaryFile("w", encoding="utf-8", delete=False, suffix=".md") as handle:
             handle.write(INPUT)

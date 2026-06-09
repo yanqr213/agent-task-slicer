@@ -12,7 +12,7 @@
 - 风险原因和 1-5 分风险评分
 - 建议验证命令
 - 依赖关系
-- Markdown、JSON、Graphviz DOT 输出
+- Markdown、JSON、JSONL、GitHub Issues、Graphviz DOT 输出
 
 项目定位不是“替你做项目管理”的 SaaS，而是一个可以放进仓库、CI、agent 编排脚本里的轻量切片器。
 
@@ -22,6 +22,7 @@
 - 从 GitHub issue、PRD、开发计划、checklist 中提取工作包。
 - 在提交给 Codex/Claude Code 前生成更小、更清晰的任务上下文。
 - 为多人 review 或 agent 并行执行生成 JSON。
+- 把切片结果变成 GitHub Issues 创建载荷，进入团队 issue 流程。
 - 为任务依赖生成 DOT 图，接入 Graphviz 或文档站。
 
 ## 安装
@@ -66,6 +67,12 @@ agent-task-slicer examples/sample_prd.md --format prompt-pack -o outputs/tasks.p
 agent-task-slicer examples/sample_prd.md --format jsonl -o outputs/tasks.queue.jsonl
 ```
 
+输出 GitHub Issues 创建载荷：
+
+```bash
+agent-task-slicer examples/sample_prd.md --format github-issues -o outputs/tasks.github-issues.json
+```
+
 输出 Graphviz DOT：
 
 ```bash
@@ -103,7 +110,7 @@ agent-task-slicer examples/sample_prd.md -c examples/config.json --format json
 
 ```python
 from agent_task_slicer import SlicerConfig, TaskSlicer
-from agent_task_slicer.exporters import export_json, export_jsonl, export_prompt_pack
+from agent_task_slicer.exporters import export_github_issues, export_json, export_jsonl, export_prompt_pack
 
 config = SlicerConfig(max_tasks=20, package_prefix="AG")
 slicer = TaskSlicer(config)
@@ -115,6 +122,7 @@ for task in result.tasks:
 json_text = export_json(result)
 queue_text = export_jsonl(result)
 prompt_pack = export_prompt_pack(result)
+issues_payload = export_github_issues(result)
 ```
 
 快捷函数：
@@ -191,6 +199,43 @@ result = slice_text("# 任务：实现 CLI\n- 支持 JSON 输出")
 {"schema":"agent-task-slicer.queue.v1","sequence":1,"source":"examples/sample_prd.md","task":{"id":"T001"},"prompt":"You are working on task T001..."}
 ```
 
+### GitHub Issues
+
+适合把 PRD、roadmap 或大 issue 拆成一组可审查的 GitHub Issues。输出是稳定 JSON schema，包含 title、body、labels、assignees 和 metadata，不会直接写入 GitHub：
+
+```bash
+agent-task-slicer examples/sample_prd.md --format github-issues -o outputs/tasks.github-issues.json
+```
+
+载荷示例：
+
+```json
+{
+  "schema": "agent-task-slicer.github-issues.v1",
+  "source": "examples/sample_prd.md",
+  "issues": [
+    {
+      "sequence": 1,
+      "task_id": "T001",
+      "title": "[T001] 任务：读取 Markdown 和 issue",
+      "labels": ["agent-task", "risk:low", "area:src"],
+      "body": "## Goal\n..."
+    }
+  ]
+}
+```
+
+用 GitHub CLI 批量创建前，建议先人工 review JSON。确认无误后可以用 `jq` 生成 issue：
+
+```bash
+jq -c '.issues[]' outputs/tasks.github-issues.json | while read -r issue; do
+  title=$(printf '%s' "$issue" | jq -r '.title')
+  body=$(printf '%s' "$issue" | jq -r '.body')
+  labels=$(printf '%s' "$issue" | jq -r '.labels | join(",")')
+  gh issue create --title "$title" --body "$body" --label "$labels"
+done
+```
+
 ### Agent Prompt Pack
 
 适合人工复制到 Codex、Claude Code 或内部 agent 控制台。每个任务都有独立 fenced prompt，包含目标、范围、输入文件、验收标准、风险、验证命令、依赖和执行规则：
@@ -223,11 +268,14 @@ python -m unittest
 agent-task-slicer docs/prd.md --format json -o work/tasks.json
 agent-task-slicer docs/prd.md --format jsonl -o work/tasks.queue.jsonl
 agent-task-slicer docs/prd.md --format prompt-pack -o work/tasks.prompts.md
+agent-task-slicer docs/prd.md --format github-issues -o work/tasks.github-issues.json
 ```
 
 如果你有自己的编排器，读取 `tasks.json` 或 `tasks.queue.jsonl`，按 `dependencies` 拓扑排序，把每个任务的 `goal`、`scope`、`input_files`、`acceptance_criteria` 和 `prompt` 发送给 Codex、Claude Code 或内部 agent。
 
 如果你是人工驱动 agent，直接打开 `tasks.prompts.md`，按顺序复制每个 fenced prompt 即可。
+
+如果团队使用 GitHub Issues 管理工作流，先 review `tasks.github-issues.json`，再用 `gh issue create` 或内部同步器批量创建。每个 issue body 都包含目标、scope、验收标准、验证命令、依赖和完整 agent prompt。
 
 ## 识别逻辑
 
@@ -262,7 +310,7 @@ python -m unittest
 
 - `src/agent_task_slicer/parser.py`：Markdown/plain text 解析。
 - `src/agent_task_slicer/heuristics.py`：任务识别、依赖推断、风险和验证命令。
-- `src/agent_task_slicer/exporters.py`：Markdown/JSON/DOT 导出。
+- `src/agent_task_slicer/exporters.py`：Markdown/JSON/JSONL/GitHub Issues/DOT 导出。
 - `src/agent_task_slicer/cli.py`：命令行入口和退出码。
 - `tests/`：纯 `unittest` 测试。
 - `examples/`：样例 PRD 和配置。
@@ -290,7 +338,7 @@ Each package includes:
 - Risk reasons and a 1-5 risk score
 - Suggested verification commands
 - Dependencies
-- Markdown, JSON, JSONL queue, agent prompt pack, and Graphviz DOT output
+- Markdown, JSON, JSONL queue, GitHub Issues, agent prompt pack, and Graphviz DOT output
 
 This is not a hosted project management product. It is a lightweight repository tool that can run locally, in CI, or inside your agent orchestration pipeline.
 
@@ -300,6 +348,7 @@ This is not a hosted project management product. It is a lightweight repository 
 - Extract work packages from issues, PRDs, checklists, and implementation plans.
 - Generate clearer context before asking a coding agent to act.
 - Feed JSON or JSONL task queues into an internal orchestrator.
+- Convert slices into GitHub issue creation payloads for team workflows.
 - Produce DOT dependency graphs for reviews and documentation.
 
 ## Installation
@@ -344,6 +393,12 @@ Write a JSONL task queue for runners and parallel schedulers:
 agent-task-slicer examples/sample_prd.md --format jsonl -o outputs/tasks.queue.jsonl
 ```
 
+Write GitHub issue creation payloads:
+
+```bash
+agent-task-slicer examples/sample_prd.md --format github-issues -o outputs/tasks.github-issues.json
+```
+
 Print Graphviz DOT:
 
 ```bash
@@ -381,7 +436,7 @@ agent-task-slicer examples/sample_prd.md -c examples/config.json --format json
 
 ```python
 from agent_task_slicer import SlicerConfig, TaskSlicer
-from agent_task_slicer.exporters import export_json
+from agent_task_slicer.exporters import export_github_issues, export_json
 
 config = SlicerConfig(max_tasks=20, package_prefix="AG")
 slicer = TaskSlicer(config)
@@ -391,6 +446,7 @@ for task in result.tasks:
     print(task.id, task.title, task.risk_score)
 
 json_text = export_json(result)
+issues_payload = export_github_issues(result)
 ```
 
 Shortcut:
@@ -437,6 +493,23 @@ JSONL queue output is intended for agent runners, batch scripts, and parallel sc
 {"schema":"agent-task-slicer.queue.v1","sequence":1,"source":"examples/sample_prd.md","task":{"id":"T001"},"prompt":"You are working on task T001..."}
 ```
 
+GitHub Issues output is intended for teams that want sliced PRDs, roadmaps, or large issues to enter the normal GitHub issue workflow. It emits a stable JSON schema with `title`, `body`, `labels`, `assignees`, and `metadata`; it does not write to GitHub by itself:
+
+```bash
+agent-task-slicer examples/sample_prd.md --format github-issues -o outputs/tasks.github-issues.json
+```
+
+Review the JSON first, then create issues with GitHub CLI or your own sync script:
+
+```bash
+jq -c '.issues[]' outputs/tasks.github-issues.json | while read -r issue; do
+  title=$(printf '%s' "$issue" | jq -r '.title')
+  body=$(printf '%s' "$issue" | jq -r '.body')
+  labels=$(printf '%s' "$issue" | jq -r '.labels | join(",")')
+  gh issue create --title "$title" --body "$body" --label "$labels"
+done
+```
+
 Agent prompt pack output is intended for human-driven Codex, Claude Code, or internal agent sessions. Each task is emitted as a fenced prompt with goal, scope, input files, acceptance criteria, risks, verification commands, dependencies, and operating rules:
 
 ```bash
@@ -465,11 +538,14 @@ Typical agent pipeline step:
 agent-task-slicer docs/prd.md --format json -o work/tasks.json
 agent-task-slicer docs/prd.md --format jsonl -o work/tasks.queue.jsonl
 agent-task-slicer docs/prd.md --format prompt-pack -o work/tasks.prompts.md
+agent-task-slicer docs/prd.md --format github-issues -o work/tasks.github-issues.json
 ```
 
 Your orchestrator can read `tasks.json` or `tasks.queue.jsonl`, topologically order tasks by `dependencies`, and send each package's structured fields plus `prompt` to Codex, Claude Code, or an internal agent.
 
 For human-driven sessions, open `tasks.prompts.md` and copy each fenced prompt in order.
+
+For GitHub-native teams, review `tasks.github-issues.json` and then create issues with `gh issue create` or an internal syncer. Each issue body includes the goal, scope, acceptance criteria, verification commands, dependencies, and full agent prompt.
 
 ## How It Works
 
@@ -502,7 +578,7 @@ Main modules:
 
 - `src/agent_task_slicer/parser.py`: Markdown/plain text parsing.
 - `src/agent_task_slicer/heuristics.py`: task recognition, dependency inference, risk scoring, verification commands.
-- `src/agent_task_slicer/exporters.py`: Markdown/JSON/DOT export.
+- `src/agent_task_slicer/exporters.py`: Markdown/JSON/JSONL/GitHub Issues/DOT export.
 - `src/agent_task_slicer/cli.py`: command line entry point and exit codes.
 - `tests/`: `unittest` suite.
 - `examples/`: sample PRD and config.

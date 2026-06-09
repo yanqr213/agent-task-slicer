@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.0 - 2026-06-09
+
+- Added `github-issues`/`gh-issues`/`issues` output for GitHub issue creation payloads.
+- Added per-task issue titles, Markdown bodies, risk/area/dependency labels, assignee placeholders, and metadata.
+- Updated README in Chinese and English with GitHub CLI import examples.
+- Expanded tests and CI smoke checks for the new issue payload schema.
+
 ## 0.2.0 - 2026-06-09
 
 - Added `prompt-pack` output for copy-paste-ready Codex/Claude Code/internal agent prompts.

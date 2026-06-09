@@ -4,6 +4,7 @@ import unittest
 from agent_task_slicer.exporters import (
     build_agent_prompt,
     export_dot,
+    export_github_issues,
     export_json,
     export_jsonl,
     export_markdown,
@@ -31,6 +32,8 @@ class ExporterTests(unittest.TestCase):
         self.assertEqual(normalize_format("graphviz"), "dot")
         self.assertEqual(normalize_format("ndjson"), "jsonl")
         self.assertEqual(normalize_format("agent-prompts"), "prompt-pack")
+        self.assertEqual(normalize_format("gh-issues"), "github-issues")
+        self.assertEqual(normalize_format("issues"), "github-issues")
 
     def test_normalize_format_rejects_unknown(self):
         with self.assertRaises(ValueError):
@@ -57,6 +60,11 @@ class ExporterTests(unittest.TestCase):
         output = export_result(self.result, "prompt-pack")
         self.assertIn("# Agent Prompt Pack", output)
         self.assertIn("Operating rules:", output)
+
+    def test_export_result_dispatches_github_issues(self):
+        output = export_result(self.result, "github-issues")
+        payload = json.loads(output)
+        self.assertEqual(payload["schema"], "agent-task-slicer.github-issues.v1")
 
     def test_export_result_rejects_unknown(self):
         with self.assertRaises(ValueError):
@@ -94,6 +102,27 @@ class ExporterTests(unittest.TestCase):
         self.assertIn("```text", output)
         self.assertIn("You are working on task T001", output)
         self.assertIn("Report changed files", output)
+
+    def test_github_issues_contains_issue_payloads(self):
+        payload = json.loads(export_github_issues(self.result))
+        self.assertEqual(payload["source"], "<text>")
+        self.assertEqual(len(payload["issues"]), len(self.result.tasks))
+        issue = payload["issues"][0]
+        self.assertEqual(issue["sequence"], 1)
+        self.assertEqual(issue["task_id"], "T001")
+        self.assertTrue(issue["title"].startswith("[T001]"))
+        self.assertIn("agent-task", issue["labels"])
+        self.assertIn("risk:", " ".join(issue["labels"]))
+        self.assertIn("## Acceptance Criteria", issue["body"])
+        self.assertIn("- [ ]", issue["body"])
+        self.assertIn("## Agent Prompt", issue["body"])
+
+    def test_github_issues_adds_dependency_and_area_labels(self):
+        payload = json.loads(export_github_issues(self.result))
+        second = payload["issues"][1]
+        self.assertIn("has-dependencies", second["labels"])
+        self.assertIn("area:src", second["labels"])
+        self.assertEqual(second["metadata"]["dependencies"], ["T001"])
 
     def test_build_agent_prompt_mentions_dependencies(self):
         prompt = build_agent_prompt(self.result.tasks[1], self.result)
